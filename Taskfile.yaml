@@ -4,9 +4,15 @@ version: "3"
 # Get the variable PROJECT_NAME from the environment or default to the CLI name
 vars:
   PROJECT_NAME:
-    sh: echo ${PROJECT_NAME:-helloc}
+    sh: echo ${PROJECT_NAME:-technitiumdns-cli}
   XDG_BIN_HOME:
     sh: echo ${XDG_BIN_HOME:-~/.local/bin}
+  DEFAULT_TARGET:
+    sh: |
+      OS=$(uname -s | tr '[:upper:]' '[:lower:]'); \
+      ARCH=$(uname -m); \
+      if [ "$ARCH" = "x86_64" ]; then ARCH="x64"; fi; \
+      echo "bun-${OS}-${ARCH}"
 
 # Set the parameter back to the environment to make it available for node operations if not already set
 env:
@@ -29,7 +35,7 @@ tasks:
     deps:
       - init
     cmds:
-      - bun run eslint **/*.{ts,json,md,yaml}
+      - bun run lint
     sources:
       - "**/*.{ts,json,md,yaml}"
 
@@ -39,7 +45,7 @@ tasks:
     deps:
       - init
     cmds:
-      - bun run eslint src/**/*.ts --fix
+      - bun run lint:fix
     sources:
       - src/**/*.ts
 
@@ -49,7 +55,7 @@ tasks:
     deps:
       - init
     cmds:
-      - bun run prettier . --write **/*.{ts,json,md,yaml}
+      - bun run format
     sources:
       - "**/*.{ts,json,md,yaml}"
 
@@ -61,38 +67,100 @@ tasks:
       - lint:fix
       - format
     cmds:
-      - mkdir -p ${XDG_BIN_HOME:-~/.local/bin}
+      - mkdir -p dist
       - |
-        # dynamically select target based on TARGET env variable, default to bun-darwin-arm64 if not set
+        TARGET_VALUE=${TARGET:-{{.DEFAULT_TARGET}}}
         TEMP_OUTFILE=./$PROJECT_NAME.tmp
-        bun build --compile --minify --sourcemap src/main.ts --target {{.TARGET}} --outfile $TEMP_OUTFILE
-        cp $TEMP_OUTFILE {{.OUTFILE}}
-        rm $TEMP_OUTFILE
+        bun build --compile --minify --sourcemap src/main.ts --target "$TARGET_VALUE" --outfile "$TEMP_OUTFILE"
+        mv "$TEMP_OUTFILE" {{.DIST_OUTFILE}}
     sources:
       - src/**/*.ts
     generates:
-      - ~/.local/bin/{{.OUTFILE}}
+      - dist/{{.PROJECT_NAME}}
     vars:
-      TARGET:
-        sh: |
-          OS=$(uname -s | tr '[:upper:]' '[:lower:]'); \
-          ARCH=$(uname -m); \
-          if [ "$ARCH" = "x86_64" ]; then ARCH="x64"; fi; \
-          echo "bun-${OS}-${ARCH}"
-      OUTFILE:
-        sh: echo ${XDG_BIN_HOME:-~/.local/bin}/$PROJECT_NAME
+      DIST_OUTFILE:
+        sh: echo dist/${PROJECT_NAME:-technitiumdns-cli}
+
+  build:linux:
+    silent: true
+    desc: "Cross-compile the SEA for Linux amd64"
+    deps:
+      - init
+      - lint:fix
+      - format
+    cmds:
+      - mkdir -p dist
+      - |
+        TARGET_VALUE=bun-linux-x64
+        TEMP_OUTFILE=./$PROJECT_NAME-linux.tmp
+        bun build --compile --minify --sourcemap src/main.ts --target "$TARGET_VALUE" --outfile "$TEMP_OUTFILE"
+        mv "$TEMP_OUTFILE" {{.LINUX_OUTFILE}}
+        rm -f "$TEMP_OUTFILE"
+    sources:
+      - src/**/*.ts
+    generates:
+      - dist/{{.PROJECT_NAME}}-linux
+    vars:
+      LINUX_OUTFILE:
+        sh: echo dist/${PROJECT_NAME:-technitiumdns-cli}-linux
+
+  build:windows:
+    silent: true
+    desc: "Cross-compile the SEA for Windows amd64"
+    deps:
+      - init
+      - lint:fix
+      - format
+    cmds:
+      - mkdir -p dist
+      - |
+        TARGET_VALUE=bun-windows-x64
+        TEMP_OUTFILE=./$PROJECT_NAME-windows.tmp
+        bun build --compile --minify --sourcemap src/main.ts --target "$TARGET_VALUE" --outfile "$TEMP_OUTFILE"
+        mv "$TEMP_OUTFILE" {{.WINDOWS_OUTFILE}}
+        rm -f "$TEMP_OUTFILE"
+    sources:
+      - src/**/*.ts
+    generates:
+      - dist/{{.PROJECT_NAME}}-windows.exe
+    vars:
+      WINDOWS_OUTFILE:
+        sh: echo dist/${PROJECT_NAME:-technitiumdns-cli}-windows.exe
+
+  build:darwin:
+    silent: true
+    desc: "Cross-compile the SEA for macOS arm64"
+    deps:
+      - init
+      - lint:fix
+      - format
+    cmds:
+      - mkdir -p dist
+      - |
+        TARGET_VALUE=bun-darwin-arm64
+        TEMP_OUTFILE=./$PROJECT_NAME-darwin.tmp
+        bun build --compile --minify --sourcemap src/main.ts --target "$TARGET_VALUE" --outfile "$TEMP_OUTFILE"
+        mv "$TEMP_OUTFILE" {{.DARWIN_OUTFILE}}
+        rm -f "$TEMP_OUTFILE"
+    sources:
+      - src/**/*.ts
+    generates:
+      - dist/{{.PROJECT_NAME}}-darwin
+    vars:
+      DARWIN_OUTFILE:
+        sh: echo dist/${PROJECT_NAME:-technitiumdns-cli}-darwin
 
   clean:
     silent: true
     desc: "Remove build artifacts for $PROJECT_NAME"
     cmds:
       - |
-        rm -f "{{.OUTFILE}}"
+        rm -rf dist
         rm -f "./{{.PROJECT_NAME}}.tmp"
         find . -maxdepth 1 -name '.*.bun-build' -delete
     vars:
-      OUTFILE:
-        sh: echo ${XDG_BIN_HOME:-~/.local/bin}/$PROJECT_NAME
+      DIST_OUTFILE:
+        sh: echo dist/${PROJECT_NAME:-technitiumdns-cli}
 
   run:
     silent: true
@@ -101,13 +169,21 @@ tasks:
       - build
     cmds:
       - echo "Running SEA for $PROJECT_NAME..."
-      - ~/.local/bin/$PROJECT_NAME hello
+      - "{{.DIST_OUTFILE}} --help"
     vars:
-      TARGET:
-        sh: |
-          OS=$(uname -s | tr '[:upper:]' '[:lower:]'); \
-          ARCH=$(uname -m); \
-          if [ "$ARCH" = "x86_64" ]; then ARCH="x64"; fi; \
-          echo "bun-${OS}-${ARCH}"
+      DIST_OUTFILE:
+        sh: echo dist/${PROJECT_NAME:-technitiumdns-cli}
+
+  release:
+    desc: "Copy the current platform build to XDG_BIN_HOME"
+    deps:
+      - build
+    cmds:
+      - mkdir -p ${XDG_BIN_HOME:-~/.local/bin}
+      - cp {{.DIST_OUTFILE}} {{.OUTFILE}}
+      - chmod +x {{.OUTFILE}}
+    vars:
+      DIST_OUTFILE:
+        sh: echo dist/${PROJECT_NAME:-technitiumdns-cli}
       OUTFILE:
-        sh: echo ${XDG_BIN_HOME:-~/.local/bin}/$PROJECT_NAME
+        sh: echo ${XDG_BIN_HOME:-~/.local/bin}/${PROJECT_NAME:-technitiumdns-cli}

@@ -1,5 +1,5 @@
 {
-  "name": "bun-sea",
+  "name": "technitiumdns-cli",
   "module": "main.ts",
   "type": "module",
   "devDependencies": {

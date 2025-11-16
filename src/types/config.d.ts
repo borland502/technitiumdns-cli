@@ -14,15 +14,28 @@ export interface AppConfig {
   description: string;
 }
 
-export interface CommandConfig {
-  name: string;
-  description: string;
-  module?: string;
-  subcommands?: boolean;
-  children?: CommandConfig[];
+export interface ApiConfig {
+  baseUrl: string;
+  timeoutMs?: number;
+  verifyTls?: boolean;
+}
+
+export interface AuthConfig {
+  username?: string;
+  password?: string;
+  token?: string;
+  totp?: string;
+}
+
+export interface CliConfig {
+  defaultOutputFormat?: "json" | "text" | "raw";
+  prettyPrintJson?: boolean;
+  colorizeJson?: boolean;
 }
 
 export interface Config {
   app: AppConfig;
-  commands: CommandConfig[];
+  api: ApiConfig;
+  auth: AuthConfig;
+  cli: CliConfig;
 }
